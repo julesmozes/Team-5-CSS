@@ -9,37 +9,35 @@ np.random.seed(42)
 
 
 def initialize_population(number_ants, pop_size):
-    """Create an initial population of colonies, the DNA is for the ants in the population"""
-    return [np.random.rand(number_ants, 2) for _ in range(0, pop_size)]
+    """Create an initial population of colonies, the DNA is for the ants in the colonies"""
+    return np.random.rand(pop_size, number_ants, 2)
 
-def fitness(colony):
-    """Evaluate how good an individual is."""
-    return colony.mean() # PLACEHOLDER
+def fitness(population):
+    """Evaluate how good a population is."""
+    return population.mean(axis=(1, 2)) # placeholder
 
-def select(population, fitnesses, num_parents):
+def select(population, fitnesses, num_offspring):
     """Select parents based on fitness."""
-    return random.choices(population, weights=fitnesses, k=num_parents)
+    probs = fitnesses / fitnesses.sum()
+    idx = np.random.choice(len(population), size=num_offspring, p=probs)
+    return population[idx]
 
-def crossover(parent1, parent2):
-    """Combine two parents to produce a child."""
-    assert parent1.shape == parent2.shape
-    n_rows = parent1.shape[0]
+def crossover(parents):
+    """Combine two parent conlonies to produce a child colony"""
+    num_offspring, _, n_ants, _ = parents.shape
+    cuts = np.random.randint(1, n_ants, size=num_offspring)
 
-    # choose cut point (not at extremes)
-    cut = np.random.randint(1, n_rows)
+    children = parents[:, 0].copy()
+    idx = np.arange(n_ants)[None, :] >= cuts[:, None]
+    children[idx] = parents[:, 1][idx]
+    return children
 
-    child = np.vstack((
-        parent1[:cut],
-        parent2[cut:]
-    ))
-
-    return child
-
-def mutate(colony, mutation_rate=0.1):
-    """Randomly perturb an individual."""
-    if np.random.random() < mutation_rate:
-        colony += np.random.uniform(-0.1, 0.1)
-    return colony
+def mutate(population, mutation_rate=0.1):
+    """Randomly perturb colonies by some rate"""
+    mask = np.random.rand(len(population)) < mutation_rate
+    noise = np.random.uniform(-0.1, 0.1, size=population.shape)
+    population[mask] += noise[mask]
+    return population
 
 def evolutionary_algorithm(
     pop_size=50,
@@ -48,31 +46,23 @@ def evolutionary_algorithm(
     number_ants=100,
 ):
     population = initialize_population(number_ants, pop_size)
-    best_individual = []
+    best_individual = np.zeros((generations, number_ants, 2))
 
     for gen in range(generations):
-        fitnesses = [fitness(colony) for colony in population]
-        best_individual.append([population[np.argmax(fitnesses)], np.max(fitnesses)])
+        fitnesses = fitness(population)
+        best_idx = np.argmax(fitnesses)
+        best_fitness = fitnesses[best_idx]
+        best_individual[gen] = population[best_idx]
+        
+        parents = select(population, fitnesses, pop_size * 2)
+        parents = parents.reshape(pop_size, 2, number_ants, 2)
 
-        new_population = []
-        while len(new_population) < pop_size:
-            parents = select(population, fitnesses, num_parents=2)
-            child = crossover(parents[0], parents[1])
-            child = mutate(child, mutation_rate)
-            new_population.append(child)
+        population = crossover(parents)
+        population = mutate(population, mutation_rate)
 
-        population = new_population
-
-        best_fitness = max(fitnesses)
-        print(f"Gen {gen:03d} | Best fitness: {best_fitness:.4f}")
+        if gen % 100 == 0:
+            print(f"Gen {gen:05d} | Best fitness: {best_fitness:.6f}")
 
     return population
 
-def tests():
-    p1 = np.ones((20, 2))
-    p2 = np.zeros((20, 2))
-
-    child = crossover(p1, p2)
-    print(child)
-
-evolutionary_algorithm(20, 1000, 0.1)
+evolutionary_algorithm(1000, 10000, 0.1)
