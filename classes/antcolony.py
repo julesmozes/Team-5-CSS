@@ -8,146 +8,173 @@ import networkx as nx
 import osmnx as ox
 import matplotlib.pyplot as plt
 
+from .maplogic import OSMMap
+
 EdgeKey = Tuple[int, int, int]  # (u, v, key) for MultiDiGraph edges
 
 @dataclass
-class ACOParams:
-    n_ants: int = 50
-    n_iters: int = 60
-    alpha: float = 1.0           # pheromone influence
-    beta: float = 3.0            # heuristic influence
-    evaporation: float = 0.3     # pheromone evaporation rate
-    q: float = 1.0               # deposit constant
-    max_steps: int = 2000        # safety against wandering
-    allow_revisit: bool = False
+class ColonyParams:
+    n_ants: int = 80
+    n_iters: int = 100
+
+    alpha: float = 1.0    # pheromone importance
+    beta: float = 3.0     # edge-cost importance
+    gamma: float = 2.0    # destination importance
+
+    evaporation: float = 0.3
+    q: float = 1.0
+
+    max_steps: int = 3000
+    allow_revisit: bool = True
 
 
-class ACORouter:
+class AntColony:
     """
-    Ant Colony Optimization on a directed MultiDiGraph.
-    Pheromone is stored per edge (u,v,key).
+    Ant Colony Optimization for directed OSMnx graphs
+    with a destination-aware heuristic.
     """
 
-    def __init__(self, G: nx.MultiDiGraph, params: Optional[ACOParams] = None, seed: int = 0):
-        self.G = G
-        self.p = params or ACOParams()
-        self.rng = random.Random(seed)
-        self.nprng = np.random.default_rng(seed)
+    def __init__(self, osmmap: OSMMap, params: ColonyParams, seed: int = 0):
+        self.osmmap = osmmap
+        self.p = params
+        self.rng = np.random.default_rng(seed)
 
-        # Initialize pheromone on all edges
-        self.tau: Dict[EdgeKey, float] = {}
-        for u, v, k in self.G.edges(keys=True):
-            self.tau[(u, v, k)] = 1.0
+        # pheromone per edge
+        self.tau: Dict[EdgeKey, float] = {
+            (u, v, k): 1.0 for u, v, k in self.osmmap.graph.edges(keys=True)
+        }
 
-    def _heuristic(self, e: EdgeKey) -> float:
-        """
-        Heuristic desirability eta = 1 / cost.
-        """
-        c = edge_cost(self.G, e)
+        # filled at solve-time
+        self.dist_to_target: Dict[int, float] = {}
+
+    # --------------------------------------------------
+    # Heuristics
+    # --------------------------------------------------
+
+    def edge_heuristic(self, e: EdgeKey) -> float:
+        """η_cost = 1 / cost"""
+        c = self.osmmap.edge_cost(e)
         if math.isinf(c):
             return 0.0
         return 1.0 / c
 
-    def _choose_next_edge(self, u: int, visited_nodes: set) -> Optional[EdgeKey]:
-        """
-        Probabilistically select an outgoing edge from node u.
-        Closed edges automatically get probability 0 via heuristic.
-        """
-        candidates = outgoing_edges(self.G, u)
+    def goal_heuristic(self, v: int) -> float:
+        """η_goal = 1 / distance_to_target"""
+        d = self.dist_to_target.get(v, float("inf"))
+        return 1.0 / (d + 1.0)
+
+    # --------------------------------------------------
+    # Edge selection
+    # --------------------------------------------------
+
+    def choose_edge(self, u: int, visited: set) -> Optional[EdgeKey]:
+        candidates = self.osmmap.outgoing_edges(u)
         if not candidates:
             return None
 
         weights = []
-        kept = []
+        edges = []
+
         for e in candidates:
             _, v, _ = e
 
-            if (not self.p.allow_revisit) and (v in visited_nodes):
+            if not self.p.allow_revisit and v in visited:
                 continue
 
-            eta = self._heuristic(e)
-            if eta <= 0.0:
+            eta_cost = self.edge_heuristic(e)
+            if eta_cost <= 0:
                 continue
 
-            tau = self.tau.get(e, 1.0)
-            w = (tau ** self.p.alpha) * (eta ** self.p.beta)
+            eta_goal = self.goal_heuristic(v)
+            tau = self.tau[e]
+
+            w = (
+                (tau ** self.p.alpha)
+                * (eta_cost ** self.p.beta)
+                * (eta_goal ** self.p.gamma)
+            )
+
             if w > 0:
-                kept.append(e)
+                edges.append(e)
                 weights.append(w)
 
-        if not kept:
+        if not edges:
             return None
 
         weights = np.array(weights, dtype=float)
         weights /= weights.sum()
-        idx = self.nprng.choice(len(kept), p=weights)
-        return kept[int(idx)]
 
-    def _construct_solution(self, source: int, target: int) -> Optional[List[EdgeKey]]:
-        """
-        Build a path as a sequence of edges.
-        """
+        return edges[self.rng.choice(len(edges), p=weights)]
+
+    # --------------------------------------------------
+    # Path construction
+    # --------------------------------------------------
+
+    def construct_path(self, source: int, target: int) -> Optional[List[EdgeKey]]:
         u = source
         visited = {u}
-        edges: List[EdgeKey] = []
+        path = []
 
         for _ in range(self.p.max_steps):
             if u == target:
-                return edges
+                return path
 
-            e = self._choose_next_edge(u, visited)
+            e = self.choose_edge(u, visited)
             if e is None:
                 return None
 
-            edges.append(e)
+            path.append(e)
             _, v, _ = e
             u = v
             visited.add(u)
 
-        return None  # exceeded max_steps
+        return None
 
-    def _evaporate(self) -> None:
-        rho = self.p.evaporation
-        for e in list(self.tau.keys()):
-            self.tau[e] = max(1e-12, (1.0 - rho) * self.tau[e])
+    # --------------------------------------------------
+    # Main solve loop
+    # --------------------------------------------------
 
-    def _deposit(self, solutions: List[Tuple[List[EdgeKey], float]]) -> None:
-        """
-        Deposit pheromone inversely proportional to path cost.
-        """
-        for path_edges, cost in solutions:
-            if cost <= 0 or math.isinf(cost):
-                continue
-            delta = self.p.q / cost
-            for e in path_edges:
-                self.tau[e] = self.tau.get(e, 1.0) + delta
+    def solve(self, source: int, target: int):
+        rev = self.osmmap.graph.reverse(copy=False)
 
-    def solve(self, source: int, target: int) -> Tuple[Optional[List[EdgeKey]], float]:
-        """
-        Run ACO and return best edge-path and its cost.
-        """
+        # Use NetworkX’s default handling for MultiDiGraph weights:
+        # If weight is a string, it takes the MIN over parallel edges.
+        # So we need a per-edge attribute that is finite.
+        # base_cost is per-edge dict in OSMnx, so OK if finite.
+        self.dist_to_target = nx.single_source_dijkstra_path_length(rev, target, weight="base_cost")
+
         best_path = None
         best_cost = float("inf")
 
         for _ in range(self.p.n_iters):
-            iter_solutions: List[Tuple[List[EdgeKey], float]] = []
+            solutions = []
 
-            for _ant in range(self.p.n_ants):
-                path_edges = self._construct_solution(source, target)
-                if path_edges is None:
-                    continue
-                c = path_cost(self.G, path_edges)
-                if math.isinf(c):
+            for _ in range(self.p.n_ants):
+                path = self.construct_path(source, target)
+                if path is None:
                     continue
 
-                iter_solutions.append((path_edges, c))
-                if c < best_cost:
-                    best_cost = c
-                    best_path = path_edges
+                cost = self.osmmap.path_cost(path)
+                if math.isinf(cost):
+                    continue
 
-            # Update pheromone
-            self._evaporate()
-            # You can deposit all, or only top-k. Here: deposit all found this iter.
-            self._deposit(iter_solutions)
+                solutions.append((path, cost))
+
+                if cost < best_cost:
+                    best_cost = cost
+                    best_path = path
+
+            success = len(solutions)
+            print("solutions this iter:", success)
+
+            # Evaporation
+            for e in self.tau:
+                self.tau[e] = max(1e-12, (1 - self.p.evaporation) * self.tau[e])
+
+            # Deposit pheromone
+            for path, cost in solutions:
+                delta = self.p.q / cost
+                for e in path:
+                    self.tau[e] += delta
 
         return best_path, best_cost
