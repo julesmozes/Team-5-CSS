@@ -16,8 +16,12 @@ beta = 1.5
 Q = 1
 evaporation = 0.2
 
-alphas = alpha + 1 * np.random.random(N_ANTS)
-betas = beta + 1 * np.random.random(N_ANTS)
+# # kleine genepool test
+# alphas = alpha + 1 * np.random.random(N_ANTS)
+# betas = beta + 1 * np.random.random(N_ANTS)
+
+alphas = alpha * np.ones(N_ANTS)
+betas = beta * np.ones(N_ANTS)
 
 for it in range(ITER):
     solutions = []
