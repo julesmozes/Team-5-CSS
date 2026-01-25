@@ -2,12 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
 import osmnx as ox
+import copy
 
 class Map:
     def __init__(self):
         self.G = None
         self.src = None
-        self.dst = None
+        self.dest = None
 
     def largest_strongly_connected_component(self, G):
         sccs = nx.strongly_connected_components(G)
@@ -141,3 +142,6 @@ class Map:
             self.plot()
 
         return nx.shortest_path_length(self.G, self.src, self.dest, weight="cost")
+    
+    def copy(self):
+        return copy.deepcopy(self)
