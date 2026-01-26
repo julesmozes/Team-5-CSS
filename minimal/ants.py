@@ -5,6 +5,8 @@ def build_path(map, alpha, beta, max_steps=10000):
     start = map.src
     end = map.dest
 
+    EPS = 1e-12  # numerical safety floor
+
     path = []
     current = start
     lastNode = start
@@ -21,12 +23,21 @@ def build_path(map, alpha, beta, max_steps=10000):
 
         probs = []
         for v in neighbors:
-            edge= G[current][v]
-            p = (edge["pheromone"] ** alpha) * ((edge["heuristic"]) ** beta)
+            edge = G[current][v]
+            
+            tau = max(edge["pheromone"], EPS)   # allows negative alpha
+            eta = max(edge["heuristic"], EPS)
+
+            p = (tau ** alpha) * (eta ** beta)
             probs.append(p)
 
         probs = np.array(probs)
-        probs /= probs.sum()
+        s = probs.sum()
+        # guard against NaN / inf / zero-sum
+        if not np.isfinite(s) or s <= 0.0:
+            probs = np.ones(len(neighbors)) / len(neighbors)
+        else:
+            probs /= s
 
         next_node = np.random.choice(neighbors, p=probs)
         length += G[current][next_node]["cost"]

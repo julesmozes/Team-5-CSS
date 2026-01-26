@@ -2,7 +2,7 @@
 from evolutionary_cycle import EvolveColonies
 
 def main():
-    colony_population_evolution = EvolveColonies(number_colonies=10, ants_per_colony=100, generations=30, iterations=500, mutation_rate=0.1)
+    colony_population_evolution = EvolveColonies(number_colonies=10, ants_per_colony=100, generations=30, iterations=200, mutation_rate=0.1)
     colony_population_evolution.run()
 
 

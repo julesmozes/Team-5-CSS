@@ -29,12 +29,24 @@ class EvolveColonies:
 
 
     def initialize_population(self, number_ants, pop_size):
-        """Create an initial population of colonies, the DNA is for the ants in the colonies"""
-        # TODO: Add some random range
-        low, high = 1, 5
-        return np.random.rand(pop_size, number_ants, 2) * (high - low) + low
-        # experiment
-        # return np.full((pop_size, number_ants, 2), [2, 1.5])
+        """Create an initial population of colonies.
+        Gene 0 = alpha pheromone importance
+        Gene 1 = beta  heuristic importance
+        """
+        alpha_low, alpha_high = -2, 5.0
+        beta_low, beta_high = 1.0, 5.0
+
+        population = np.empty((pop_size, number_ants, 2), dtype=float)
+
+        population[..., 0] = np.random.uniform(
+            alpha_low, alpha_high, size=(pop_size, number_ants)
+        )
+
+        population[..., 1] = np.random.uniform(
+            beta_low, beta_high, size=(pop_size, number_ants)
+        )
+
+        return population
 
     def _evaluate_colony(self, colony_idx, colony, local_map):
         """
@@ -72,7 +84,7 @@ class EvolveColonies:
         Parallel fitness evaluation.
         Returns fitness array aligned with population order.
         """
-        min_dist = self.map.makeRandomTest(100, 200, plot=False)
+        min_dist = self.map.makeRandomTest(50, 100, plot=False)
         print("minimum distance Dijkstra: ", min_dist)
         fitness = np.empty(self.pop_size, dtype=float)
 
@@ -82,6 +94,7 @@ class EvolveColonies:
                     self._evaluate_colony,
                     idx,
                     population[idx],
+                    # all of the proccesses have their own map, perfomance intensive?
                     self.map.copy()
                 )
                 for idx in range(self.pop_size)
@@ -117,9 +130,12 @@ class EvolveColonies:
 
     def mutate(self, population, mutation_rate=0.1):
         """Randomly perturb colonies by some rate"""
+        # possible improvement: log scale mutation
         mask = np.random.rand(*population.shape) < mutation_rate
         noise = np.random.uniform(-0.1, 0.1, size=population.shape)
         population[mask] += noise[mask]
+        population[..., 0] = np.clip(population[..., 0], -5.0, 5.0)   # alpha
+        population[..., 1] = np.clip(population[..., 1], 0.0, 10.0)   # beta
         return population
     
     def run(self):
