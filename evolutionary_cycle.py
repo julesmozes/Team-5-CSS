@@ -104,20 +104,20 @@ class EvolveColonies:
             solutions = []
 
             for ant_idx in range(self.num_ants):
-                path, length = ants.build_path(
-                    local_map,
+                path, length, steps = ants.build_path_numba(
+                    local_map.getNumbaData(),
                     colony[ant_idx, 0],
                     colony[ant_idx, 1],
                 )
-                if path:
-                    solutions.append((path, length))
+                if steps:
+                    solutions.append((path, length, steps))
 
             if not solutions:
                 continue
 
-            ants.update_pheromones(local_map, solutions, self.Q, self.evaporation_rate)
+            ants.update_pheromones_numba(local_map.pheromone, solutions, self.Q, self.evaporation_rate)
 
-            best = min(length for _, length in solutions)
+            best = min(length for _, length, _ in solutions)
             if best < best_overall:
                 best_overall = best
                 best_it = it_idx
