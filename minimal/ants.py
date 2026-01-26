@@ -3,8 +3,9 @@ from numba import njit
 
 def build_path(map, alpha, beta, max_steps=1000):
     G = map.G
-    start = map.src
-    end = map.dest
+    start = map.src_node
+    end = map.dest_node
+
 
     path = []
     current = start

@@ -23,6 +23,17 @@ class EvolveColonies:
         self.Q = Q
         self.map = osmap.Map()
         self.map.build("Oost, Amsterdam, Netherlands")
+        
+        # HISTORY, used for plotting/restoring
+        self.history = np.zeros(
+            (generations, number_colonies, ants_per_colony, 2),
+            dtype=float
+        )
+        # Fitness history, used for plotting/restoring
+        self.fitness_history = np.zeros(
+            (generations, number_colonies),
+            dtype=float
+        )
 
         self.population = self.initialize_population(ants_per_colony, number_colonies)
         self.best_individual = np.zeros((generations, ants_per_colony, 2))
@@ -47,64 +58,98 @@ class EvolveColonies:
         )
 
         return population
+    
+
+    @staticmethod
+    def _dominates(q_a, e_a, q_b, e_b):
+        """True if A Pareto-dominates B (minimize both objectives)."""
+        return (q_a <= q_b and e_a <= e_b) and (q_a < q_b or e_a < e_b)
+    
+    def select_pareto(self, population, quality, effort, num_offspring, k=3):
+        selected = []
+        n = len(population)
+
+        for _ in range(num_offspring):
+            competitors = np.random.choice(n, size=k, replace=False)
+
+            # Find non-dominated competitors
+            nondominated = []
+            for i in competitors:
+                dominated = False
+                for j in competitors:
+                    if j == i:
+                        continue
+                    if self._dominates(quality[j], effort[j], quality[i], effort[i]):
+                        dominated = True
+                        break
+                if not dominated:
+                    nondominated.append(i)
+
+            # Tie-break: pick best quality, then best effort
+            nd = np.array(nondominated, dtype=int)
+            # lexsort sorts by last key first -> (effort, quality) gives quality primary if placed last
+            order = np.lexsort((effort[nd], quality[nd]))
+            winner = nd[order[0]]
+
+            selected.append(population[winner])
+
+        return np.array(selected)
 
     def _evaluate_colony(self, colony_idx, colony, local_map):
-        """
-        Evaluate a single colony.
-        Returns (colony_idx, fitness)
-        """
+        np.random.seed()  # uses OS entropy
         best_overall = np.inf
+        best_it = self.iterations  # default if never improves
 
         for it_idx in range(self.iterations):
             solutions = []
 
             for ant_idx in range(self.num_ants):
-                path, length, steps = ants.build_path_numba(
-                    local_map.getNumbaData(),
+                path, length = ants.build_path(
+                    local_map,
                     colony[ant_idx, 0],
                     colony[ant_idx, 1],
                 )
-                if steps:
-                    solutions.append((path, length, steps))
+                if path:
+                    solutions.append((path, length))
 
             if not solutions:
                 continue
 
-            ants.update_pheromones_numba(
-                local_map.pheromone, solutions, self.Q, self.evaporation_rate
-            )
+            ants.update_pheromones(local_map, solutions, self.Q, self.evaporation_rate)
 
-            best = min(length for _, length, _ in solutions)
-            best_overall = min(best_overall, best)
+            best = min(length for _, length in solutions)
+            if best < best_overall:
+                best_overall = best
+                best_it = it_idx
 
-        return colony_idx, best_overall
+        # guard: if never found a solution
+        if not np.isfinite(best_overall):
+            best_overall = 1e18
+            best_it = self.iterations
+
+        return colony_idx, best_overall, best_it
+
     
     def fitness(self, population):
-        """
-        Parallel fitness evaluation.
-        Returns fitness array aligned with population order.
-        """
-        min_dist = self.map.makeRandomTest(300, 500, plot=False)
+        min_dist = self.map.makeRandomTest(min_dist=500, max_dist=800, plot=False)
         print("minimum distance Dijkstra: ", min_dist)
-        fitness = np.empty(self.pop_size, dtype=float)
+
+        quality = np.empty(self.pop_size, dtype=float)
+        effort = np.empty(self.pop_size, dtype=float)
 
         with ProcessPoolExecutor() as executor:
             futures = [
-                executor.submit(
-                    self._evaluate_colony,
-                    idx,
-                    population[idx],
-                    # all of the proccesses have their own map, perfomance intensive?
-                    self.map.copy()
-                )
+                executor.submit(self._evaluate_colony, idx, population[idx], self.map.copy())
                 for idx in range(self.pop_size)
             ]
 
             for future in futures:
-                colony_idx, value = future.result()
-                fitness[colony_idx] = value
+                colony_idx, best_overall, best_it = future.result()
+                quality[colony_idx] = best_overall / min_dist # lower is better
+                effort[colony_idx] = best_it  # lower is better
 
-        return fitness
+        return quality, effort
+
 
     def select(self, population, fitnesses, num_offspring, k=3):
         """Select parents based on fitness."""
@@ -138,21 +183,46 @@ class EvolveColonies:
         population[..., 1] = np.clip(population[..., 1], 0.0, 10.0)   # beta
         return population
     
+    def save(self, path="evolution_backup.npz"):
+        np.savez_compressed(
+            path,
+            history=self.history,
+            fitness_history=self.fitness_history,
+            best_individual=self.best_individual,
+            final_population=self.population
+        )
+    
     def run(self):
         for gen in range(self.generations):
-            fitnesses = self.fitness(self.population)
-            best_idx = np.argmin(fitnesses)
-            best_fitness = fitnesses[best_idx]
+            quality, effort = self.fitness(self.population)
+            print("quality:", quality)
+            print("effort:", effort)
+
+            # If you still want a single number for logging:
+            # (quality is the primary thing)
+            best_idx = np.argmin(quality)
+            best_quality = quality[best_idx]
+            best_effort = effort[best_idx]
+
+            # ---- STORE HISTORY ----
+            self.history[gen] = self.population
+            # store just quality as your "fitness_history" (or expand it)
+            self.fitness_history[gen] = quality
+            self.save()
+
             self.best_individual[gen] = self.population[best_idx]
 
             elite = self.population[best_idx:best_idx+1]
-            parents = self.select(self.population, fitnesses, self.pop_size * 2)
+
+            parents = self.select_pareto(self.population, quality, effort, self.pop_size * 2, k=3)
             parents = parents.reshape(self.pop_size, 2, self.num_ants, 2)
 
             self.population = self.crossover(parents)
             self.population = self.mutate(self.population, self.mutation_rate)
             self.population[0] = elite[0]
 
+            print(f"Gen {gen:05d} | Best quality: {best_quality:.6f} | Effort(it): {best_effort}")
 
-            print(f"Gen {gen:05d} | Best fitness: {best_fitness:.6f}")
+        return self.history, self.fitness_history
+
 

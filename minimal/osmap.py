@@ -8,7 +8,7 @@ class Map:
     def __init__(self):
         self.G = None
         self.src = None
-        self.dst = None
+        self.dest = None
 
     def largest_strongly_connected_component(self, G):
         sccs = nx.strongly_connected_components(G)
