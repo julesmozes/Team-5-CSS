@@ -16,26 +16,19 @@ beta = 1.5
 Q = 1
 evaporation = 0.2
 
-# # kleine genepool test
-# alphas = alpha + 1 * np.random.random(N_ANTS)
-# betas = beta + 1 * np.random.random(N_ANTS)
-
-alphas = alpha * np.ones(N_ANTS)
-betas = beta * np.ones(N_ANTS)
-
 for it in range(ITER):
     solutions = []
 
     for i in range(N_ANTS):
-        path, length = ants.build_path(map, alphas[i], betas[i])
-        if path:
-            solutions.append((path, length))
+        path, length, steps = ants.build_path_numba(map.getNumbaData(), alpha, beta, max_steps=1000)
+        if steps:
+            solutions.append((path, length, steps))
 
     if not solutions:
-        print("no solutions")
+        print(f"iter {it}, no solution")
         continue
 
-    ants.update_pheromones(map, solutions, Q, evaporation)
+    ants.update_pheromones_numba(map.pheromone, solutions, Q, evaporation)
 
-    best = min(length for _, length in solutions)
+    best = min(length for _, length, _ in solutions)
     print(f"iter {it}, best length {best:.3f}")

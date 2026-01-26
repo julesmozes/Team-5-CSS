@@ -8,7 +8,7 @@ class Map:
     def __init__(self):
         self.G = None
         self.src = None
-        self.dest = None
+        self.dst = None
 
     def largest_strongly_connected_component(self, G):
         sccs = nx.strongly_connected_components(G)
@@ -56,42 +56,44 @@ class Map:
         self.Gm = self.largest_strongly_connected_component(self.Gm)
         self.Gm = ox.project_graph(self.Gm)
         self.G = self.multidigraph_to_digraph(self.Gm) 
+        self.graph_to_arrays(self.G)
 
         return
 
     def random_node_pair(self, min_dist, max_dist, max_tries=10000):
-        nodes = list(self.G.nodes)
 
         for _ in range(max_tries):
-            self.src = np.random.choice(nodes)
-            self.dest = np.random.choice(nodes)
-            if self.src == self.dest:
-                continue
+            self.src, self.dest = np.random.choice(np.arange(self.N), 2, replace=False)
+
+            self.src_node, self.dest_node = self.nodes[self.src], self.nodes[self.dest]
 
             # Euclidean separation (cheap pre-filter)
-            x1, y1 = self.G.nodes[self.src]["x"], self.G.nodes[self.src]["y"]
-            x2, y2 = self.G.nodes[self.dest]["x"], self.G.nodes[self.dest]["y"]
+            x1, y1 = self.G.nodes[self.src_node]["x"], self.G.nodes[self.src_node]["y"]
+            x2, y2 = self.G.nodes[self.dest_node]["x"], self.G.nodes[self.dest_node]["y"]
             eucl = np.hypot(x1 - x2, y1 - y2)
             if eucl < min_dist:
                 continue
 
             # Directed network distance (true difficulty)
             try:
-                d = nx.shortest_path_length(self.G, self.src, self.dest, weight="cost")
+                d = nx.shortest_path_length(self.G, self.src_node, self.dest_node, weight="cost")
             except nx.NetworkXNoPath:
                 continue
 
             if d <= max_dist:
-                return self.src, self.dest
+                return d
 
         raise RuntimeError("Could not find suitable node pair within distance bounds")
 
     def build_heuristic(self):
-        target_x, target_y = self.G.nodes[self.dest]["x"], self.G.nodes[self.dest]["y"]
+        target_x, target_y = self.G.nodes[self.dest_node]["x"], self.G.nodes[self.dest_node]["y"]
 
-        for u, v in self.G.edges:
-            x, y = self.G.nodes[v]["x"], self.G.nodes[v]["y"]
-            self.G[u][v]["heuristic"] = 1 / (np.hypot(x - target_x, y - target_y) + 1e-6)
+        for i in range(self.N):
+            for k in range(self.degree[i]):
+                posIndex = self.neighbors[i, k]
+                pos = self.nodes[posIndex]
+                x, y = self.G.nodes[pos]["x"], self.G.nodes[pos]["y"]
+                self.heuristic[i, k] = 1 / (np.hypot(x - target_x, y - target_y) + 1e-6)
 
         return
     
@@ -107,8 +109,8 @@ class Map:
 
         if self.src:
             ax.scatter(
-                self.G.nodes[self.src]["x"],
-                self.G.nodes[self.src]["y"],
+                self.G.nodes[self.src_node]["x"],
+                self.G.nodes[self.src_node]["y"],
                 c="green",
                 s=80,
                 zorder=5,
@@ -117,8 +119,8 @@ class Map:
 
         if self.dest:
             ax.scatter(
-                self.G.nodes[self.dest]["x"],
-                self.G.nodes[self.dest]["y"],
+                self.G.nodes[self.dest_node]["x"],
+                self.G.nodes[self.dest_node]["y"],
                 c="red",
                 s=80,
                 zorder=5,
@@ -130,18 +132,59 @@ class Map:
 
         return
     
+    def graph_to_arrays(self, G):
+        self.N = len(G.nodes)
+
+        self.max_deg = max(len(list(G.neighbors(n))) for n in G.nodes())
+
+        self.nodes      = np.array([u for u in G.nodes])
+        self.neighbors  = np.ones((self.N, self.max_deg), dtype=np.int32)
+        self.pheromone  = np.ones((self.N, self.max_deg), dtype=np.float64)
+        self.heuristic  = np.zeros((self.N, self.max_deg), dtype=np.float64)
+        self.cost       = np.zeros((self.N, self.max_deg), dtype=np.float64)
+        self.degree     = np.zeros(self.N, dtype=np.int32)
+
+        for i, u in enumerate(G.nodes):
+            for k, v in enumerate(G.neighbors(u)):
+                self.neighbors[i, k] = np.argwhere(self.nodes == v)
+                edge = G[u][v]
+                self.pheromone[i, k] = edge["pheromone"]
+                self.heuristic[i, k] = edge["heuristic"]
+                self.cost[i, k]      = edge["cost"]
+                self.degree[i] += 1
+
+        return
+    
+    def resetPheromones(self):
+        for u, v in self.G.edges:
+            self.G[u][v]["pheromone"] = 1.0
+
+        for i in range(self.N):
+            self.pheromone[i] = np.ones(self.max_deg)
+
+        return
+    
     def makeRandomTest(self, min_dist=100, max_dist=300, plot=True, resetPheromones=True):
-        self.random_node_pair(min_dist, max_dist)
+        d = self.random_node_pair(min_dist, max_dist)
         self.build_heuristic()
 
         if resetPheromones:
-            for u, v in self.G.edges:
-                self.G[u][v]["pheromone"] = 1.0
+            self.resetPheromones()
 
         if plot:
             self.plot()
 
-        return nx.shortest_path_length(self.G, self.src, self.dest, weight="cost")
+        return d
     
+    def getNumbaData(self):
+        return (self.max_deg, 
+                self.neighbors,
+                self.degree,
+                self.heuristic,
+                self.pheromone,
+                self.cost,
+                self.src,
+                self.dest,)
+
     def copy(self):
         return copy.deepcopy(self)
