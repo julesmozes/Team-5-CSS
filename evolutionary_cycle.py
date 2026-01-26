@@ -84,7 +84,7 @@ class EvolveColonies:
         Parallel fitness evaluation.
         Returns fitness array aligned with population order.
         """
-        min_dist = self.map.makeRandomTest(50, 100, plot=False)
+        min_dist = self.map.makeRandomTest(80, 200, plot=False)
         print("minimum distance Dijkstra: ", min_dist)
         fitness = np.empty(self.pop_size, dtype=float)
 
