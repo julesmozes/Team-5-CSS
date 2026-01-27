@@ -4,6 +4,10 @@ import networkx as nx
 import osmnx as ox
 import copy
 
+import matplotlib.animation as animation
+from matplotlib.collections import LineCollection
+from matplotlib import colors
+
 class Map:
     def __init__(self):
         self.G = None
@@ -132,29 +136,176 @@ class Map:
 
         return
     
+    def animate_costs(
+    self,
+    t_max=200,
+    dt=1.0,
+    interval=50,
+    cmap="rainbow"
+    ):
+        """
+        Animate dynamic edge costs.
+        
+        Parameters
+        ----------
+        t_max : float
+            Maximum simulation time
+        dt : float
+            Time step per frame
+        interval : int
+            Delay between frames in ms
+        cmap : str
+            Matplotlib colormap
+        """
+
+        # --- build edge geometry once ---
+        segments = []
+        edge_index = []  # (i, k) pairs
+
+        for i, u in enumerate(self.nodes):
+            x1, y1 = self.G.nodes[u]["x"], self.G.nodes[u]["y"]
+            for k in range(self.degree[i]):
+                j = self.neighbors[i, k]
+                v = self.nodes[j]
+                x2, y2 = self.G.nodes[v]["x"], self.G.nodes[v]["y"]
+
+                segments.append([(x1, y1), (x2, y2)])
+                edge_index.append((i, k))
+
+        segments = np.asarray(segments)
+
+        # --- initial colors ---
+        base = np.array([self.base_cost[i, k] for i, k in edge_index])
+        cost = np.array([self.cost[i, k] for i, k in edge_index])
+        ratio = cost / base
+
+        norm = colors.Normalize(vmin=0.5, vmax=1.5)
+
+        lc = LineCollection(
+            segments,
+            cmap=cmap,
+            norm=norm,
+            linewidths=1.0
+        )
+        lc.set_array(ratio)
+
+        # --- plot ---
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.add_collection(lc)
+        ax.autoscale()
+        ax.set_axis_off()
+
+        cbar = fig.colorbar(lc, ax=ax, fraction=0.03, pad=0.01)
+        cbar.set_label("cost / base_cost")
+
+        def update(frame):
+            t = frame * dt
+            self.updateEdges(t)
+
+            cost = np.fromiter(
+                (self.cost[i, k] for i, k in edge_index),
+                dtype=float,
+                count=len(edge_index)
+            )
+
+            lc.set_array(cost / base)
+            ax.set_title(f"t = {t:.1f}")
+
+            return ()
+
+        frames = int(t_max / dt)
+
+        ani = animation.FuncAnimation(
+            fig,
+            update,
+            frames=frames,
+            interval=interval,
+            blit=False,
+            repeat=True
+        )
+
+        plt.show()
+        return
+    
     def graph_to_arrays(self, G):
         self.N = len(G.nodes)
 
         self.max_deg = max(len(list(G.neighbors(n))) for n in G.nodes())
 
         self.nodes      = np.array([u for u in G.nodes])
+        self.pos        = np.zeros((self.N, 2), dtype=np.float64)
         self.neighbors  = np.ones((self.N, self.max_deg), dtype=np.int32)
         self.pheromone  = np.ones((self.N, self.max_deg), dtype=np.float64)
         self.heuristic  = np.zeros((self.N, self.max_deg), dtype=np.float64)
+        self.base_cost  = np.zeros((self.N, self.max_deg), dtype=np.float64)
         self.cost       = np.zeros((self.N, self.max_deg), dtype=np.float64)
+        self.modulation = np.zeros(self.N, dtype=np.float64)
         self.degree     = np.zeros(self.N, dtype=np.int32)
 
         for i, u in enumerate(G.nodes):
+            self.pos[i, :] = [G.nodes[u]["x"], G.nodes[u]["y"]]
+
             for k, v in enumerate(G.neighbors(u)):
                 self.neighbors[i, k] = np.argwhere(self.nodes == v)
                 edge = G[u][v]
                 self.pheromone[i, k] = edge["pheromone"]
                 self.heuristic[i, k] = edge["heuristic"]
+                self.base_cost[i, k] = edge["cost"]
                 self.cost[i, k]      = edge["cost"]
                 self.degree[i] += 1
 
         return
     
+    def calcModulation(self, t):
+        for i in range(self.N):
+            self.modulation[i] = self.amplitude @ np.sin(self.waveVectors @ self.pos[i, :] + self.tempFrequencies * t)
+
+        return
+    
+    def buildTraffic(
+        self, 
+        modulationDepth=.5,
+        minSpatialWavelength=200,
+        minTemporalWavelength=5
+    ):
+        # use 10 components for spatial/temporal
+        self.waveVectors = np.random.uniform(-1, 1, (10, 2)) / minSpatialWavelength
+        self.tempFrequencies = np.random.uniform(-1, 1, 10) / minTemporalWavelength
+        self.amplitude = np.random.uniform(-1, 1, 10)
+
+        # normalise
+        maxTime = 1000
+        steps = 1000
+        time = np.linspace(0, maxTime, steps)
+        maxModulation = np.empty(steps)
+
+        for i, t in enumerate(time):
+            self.calcModulation(t)
+
+            edgeModulation = np.zeros((self.N, self.max_deg))
+            for u in range(self.N):
+                for k in range(self.degree[i]):
+                    v = self.neighbors[i, k]
+
+                    edgeModulation[i, k] = .5 * (self.modulation[u] + self.modulation[v])
+
+            maxModulation[i] = np.max(edgeModulation)
+
+        self.amplitude *= modulationDepth / np.max(maxModulation)
+
+        return
+    
+    def updateEdges(self, t):
+        self.calcModulation(t)
+
+        for i in range(self.N):
+            for k in range(self.degree[i]):
+                j = self.neighbors[i, k]
+
+                self.cost[i, k] = self.base_cost[i, k] * (1 + .5 * (self.modulation[i] + self.modulation[j]))
+
+        return
+
     def resetPheromones(self):
         for u, v in self.G.edges:
             self.G[u][v]["pheromone"] = 1.0
@@ -183,6 +334,20 @@ class Map:
                 self.heuristic,
                 self.pheromone,
                 self.cost,
+                self.src,
+                self.dest,)
+    
+    def getNumbaDataDynamic(self):
+        return (self.max_deg, 
+                self.neighbors,
+                self.degree,
+                self.heuristic,
+                self.pheromone,
+                self.base_cost,
+                self.pos,
+                self.waveVectors,
+                self.tempFrequencies,
+                self.amplitude,
                 self.src,
                 self.dest,)
 

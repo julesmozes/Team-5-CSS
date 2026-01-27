@@ -16,11 +16,13 @@ beta = 1.5
 Q = 1
 evaporation = 0.2
 
+map.buildTraffic()
+
 for it in range(ITER):
     solutions = []
 
     for i in range(N_ANTS):
-        path, length, steps = ants.build_path_numba(map.getNumbaData(), alpha, beta, max_steps=1000)
+        path, length, steps = ants.build_path_numba_dynamic(map.getNumbaDataDynamic(), alpha, beta, max_steps=1000)
         if steps:
             solutions.append((path, length, steps))
 
@@ -28,7 +30,7 @@ for it in range(ITER):
         print(f"iter {it}, no solution")
         continue
 
-    ants.update_pheromones_numba(map.pheromone, solutions, Q, evaporation)
+    ants.update_pheromones_numba_max(map.pheromone, solutions, Q, evaporation, max_pheromone=.5)
 
     best = min(length for _, length, _ in solutions)
     print(f"iter {it}, best length {best:.3f}")

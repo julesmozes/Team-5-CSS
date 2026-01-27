@@ -162,3 +162,86 @@ def update_pheromones_numba_max(pheromones, paths, Q, evaporation, max_pheromone
     pheromones = np.clip(pheromones, 0, max_pheromone)
 
     return
+
+@njit
+def build_path_numba_dynamic(
+    mapData,
+    alpha,
+    beta,
+    max_steps=10000
+):  
+    
+    (max_deg,
+    neighbors,
+    degree,
+    heuristic,
+    pheromone,
+    base_cost,
+    pos,
+    waveVectors,
+    tempFrequencies,
+    amplitude,
+    start,
+    end) = mapData
+
+    path = np.empty((max_steps, 2), dtype=np.int32)
+
+    current = start
+    last = -1
+    length = 0.0
+    steps = 0
+
+    cost = np.copy(base_cost)
+    N = np.shape(base_cost)[0]
+
+    for _ in range(max_steps):
+        if current == end:
+            break
+
+        # compute probabilities
+        total = 0.0
+        probs = np.zeros(max_deg, dtype=np.float64)
+
+        for k in range(degree[current]):
+            v = neighbors[current, k]
+            if v == last:
+                continue
+
+            w = (pheromone[current, k] ** alpha) * \
+                (heuristic[current, k] ** beta)
+
+            probs[k] = w
+            total += w
+
+        if total == 0.0:
+            return path, 0, 0  # dead end
+
+        # roulette wheel selection
+        r = np.random.rand() * total
+        cum = 0.0
+        chosen_k = -1
+
+        for k in range(degree[current]):
+            cum += probs[k]
+            if r <= cum:
+                chosen_k = k
+                break
+
+        next_node = neighbors[current, chosen_k]
+
+        path[steps, :] = [current, chosen_k] 
+
+        # update dynamic length
+        modulationSrc = amplitude @ np.sin(waveVectors @ pos[current, :] + tempFrequencies * length)
+        modulationDest = amplitude @ np.sin(waveVectors @ pos[chosen_k, :] + tempFrequencies * length)
+
+        length += base_cost[current, chosen_k] * (1 + .5 * (modulationSrc + modulationDest))
+    
+        last = current
+        current = next_node
+        steps += 1
+
+    if steps <= max_steps:
+        return path, length, steps
+    else:
+        return path, 0, 0

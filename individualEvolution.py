@@ -3,6 +3,8 @@ import minimal.ants as ants
 import minimal.osmap as osmap
 import matplotlib.pyplot as plt
 
+np.random.seed(49)
+
 class IndividualEvolution:  
     def __init__(
             self, 
@@ -65,13 +67,13 @@ class IndividualEvolution:
         self.betas[worstAnts] = np.random.choice(self.betas[bestAnts], self.N_offspring)
 
         # apply mutation
-        mutatedAlphas = np.random.uniform(self.alpha_min, self.alpha_max, self.N_mutated)
-        mutatedBetas = np.random.uniform(self.beta_min, self.beta_max, self.N_mutated)
+        alphasNoise = np.random.uniform(-.1, .1, self.N_mutated)
+        betasNoise = np.random.uniform(-1., .1, self.N_mutated)
 
         mutationIndices = np.random.choice(worstAnts, self.N_mutated, replace=False)
 
-        self.alphas[mutationIndices] = mutatedAlphas
-        self.betas[mutationIndices] = mutatedBetas
+        self.alphas[mutationIndices] += alphasNoise
+        self.betas[mutationIndices] += betasNoise
 
         return
     
@@ -178,17 +180,19 @@ class IndividualEvolution:
                 print(f"iter {it}, best length ratio {best / dijkstraDistance:.3f}")
 
             fitness /= dijkstraDistance
-            fitness = np.mean(fitness, axis=1)
+            fitness = np.nanmean(fitness, axis=1)
 
             self.alphasHistory[:, g] = self.alphas
             self.betasHistory[:, g] = self.betas
             self.fitnessHistory[:, g] = fitness
             self.evolutionStep(fitness)
+            
+            map.resetPheromones()
 
         return
     
 evolutionObject = IndividualEvolution(
-    N_ants=200, 
+    N_ants=100, 
     iterations=100, 
     evaporation=.2,
     fertilityRatio=.1,
@@ -200,8 +204,8 @@ evolutionObject = IndividualEvolution(
 evolutionObject.makeUniformGenepool(
     alpha_min = -5,
     alpha_max = 10,
-    beta_min = -2,
-    beta_max = 5
+    beta_min = -5,
+    beta_max = 10
 )
 
 evolutionObject.run(800, 1000)
