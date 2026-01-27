@@ -149,3 +149,16 @@ def update_pheromones_numba(pheromones, paths, Q, evaporation):
             pheromones[path[i, 0], path[i, 1]] += deposit
 
     return
+
+@njit
+def update_pheromones_numba_max(pheromones, paths, Q, evaporation, max_pheromone=10):
+    pheromones *= (1 - evaporation)
+
+    for path, length, steps in paths:
+        deposit = Q / length
+        for i in range(steps):
+            pheromones[path[i, 0], path[i, 1]] += deposit
+
+    pheromones = np.clip(pheromones, 0, max_pheromone)
+
+    return
