@@ -59,6 +59,47 @@ class Map:
         self.graph_to_arrays(self.G)
 
         return
+    
+    
+    def set_src_dest_from_nodes(self, src_node, dest_node, plot=True, resetPheromones=True):
+        if src_node not in self.G.nodes:
+            raise ValueError("src_node not found in graph")
+
+        if dest_node not in self.G.nodes:
+            raise ValueError("dest_node not found in graph")
+
+        # store node IDs
+        self.src_node = src_node
+        self.dest_node = dest_node
+
+        # convert to internal indices
+        try:
+            self.src = int(np.where(self.nodes == src_node)[0][0])
+            self.dest = int(np.where(self.nodes == dest_node)[0][0])
+        except IndexError:
+            raise RuntimeError("Node IDs not found in internal node array")
+
+        # compute shortest path distance
+        try:
+            d = nx.shortest_path_length(
+                self.G,
+                self.src_node,
+                self.dest_node,
+                weight="cost",
+            )
+        except nx.NetworkXNoPath:
+            raise RuntimeError("No path exists between provided nodes")
+
+        # update heuristic + pheromones
+        self.build_heuristic()
+
+        if resetPheromones:
+            self.resetPheromones()
+
+        if plot:
+            self.plot()
+
+        return d
 
     def random_node_pair(self, min_dist, max_dist, max_tries=10000):
 
