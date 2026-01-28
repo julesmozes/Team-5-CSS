@@ -21,6 +21,7 @@ class Grid_search():
         self.betas = init_params[1]
         self.repeats = repeats
         self.base_seed = base_seed
+        self.evolution_data = None
         
     def run_manual_grid_search(self):
         results = {}
@@ -190,7 +191,48 @@ class Grid_search():
 
         print("\nBEST random:", best_params, best_metrics)
         return best_params, best_metrics
-                
+    
+    def run_colony_dna(self, num_evals, num_iterations, num_ants):
+        colony = self.evo_data["best_individual"][-2] # laatst gevulde index blijkbaar -1 is leeg, maar hoort geen probleem te zijn lijkt me
+        np.random.seed()
+
+        target_dist = self.min_dist + 50.0
+        its_to_threshold = []
+        for _ in range(num_evals):
+            self.map.resetPheromones()
+            reached_it = num_iterations  # default = failure
+
+            for it_idx in range(num_iterations):
+                solutions = []
+
+                for ant_idx in range(num_ants):
+                    path, length, steps = ants.build_path_numba(
+                        self.map.getNumbaData(),
+                        colony[ant_idx, 0],
+                        colony[ant_idx, 1],
+                    )
+                    if steps:
+                        solutions.append((path, length, steps))
+
+                if not solutions:
+                    continue
+
+                ants.update_pheromones_numba(
+                    self.map.pheromone,
+                    solutions,
+                    Q=1,
+                    evaporation=0.2,
+                )
+
+                best_length = min(length for _, length, _ in solutions)
+                if best_length <= target_dist:
+                    reached_it = it_idx
+                    break
+
+            its_to_threshold.append(reached_it)
+
+        self.its_to_threshold = its_to_threshold
+        return its_to_threshold
         
         
 if __name__ == "__main__":
@@ -207,10 +249,9 @@ if __name__ == "__main__":
     
     grid_search = Grid_search(n_ants, iterations, Q, evaporation, init_params)
     grid_search.build_map(filename="new_version_colony_evolution/evolution_backup.npz")
-    grid_search.run_random_search(n_samples=1)
+    # grid_search.run_random_search(n_samples=1)
+    grid_search.run_colony_dna(num_evals=20, num_iterations=1000, num_ants=100)
     
-    
-
 
 
 
