@@ -16,13 +16,13 @@ beta = 1.5
 Q = 1
 evaporation = 0.2
 
-map.buildTraffic()
+map.seedShortestPath()
 
 for it in range(ITER):
     solutions = []
 
     for i in range(N_ANTS):
-        path, length, steps = ants.build_path_numba_dynamic(map.getNumbaDataDynamic(), alpha, beta, max_steps=1000)
+        path, length, steps = ants.build_path_numba(map.getNumbaData(), alpha, beta, max_steps=1000)
         if steps:
             solutions.append((path, length, steps))
 

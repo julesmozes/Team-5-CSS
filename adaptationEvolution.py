@@ -8,7 +8,8 @@ np.random.seed(93)
 class IndividualEvolution:  
     def __init__(
             self, 
-            N_ants=100,
+            N_colonies=10,
+            N_ants=30,
             iterations=500,
             generations=10,
             Q=1,

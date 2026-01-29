@@ -112,7 +112,7 @@ def build_path_numba(
             total += w
 
         if total == 0.0:
-            return path, 0, 0  # dead end
+            return path, length, 0  # dead end
 
         # roulette wheel selection
         r = np.random.rand() * total
@@ -137,7 +137,7 @@ def build_path_numba(
     if steps <= max_steps:
         return path, length, steps
     else:
-        return path, 0, 0
+        return path, length, 0
 
 @njit
 def update_pheromones_numba(pheromones, paths, Q, evaporation):
@@ -151,7 +151,7 @@ def update_pheromones_numba(pheromones, paths, Q, evaporation):
     return
 
 @njit
-def update_pheromones_numba_max(pheromones, paths, Q, evaporation, max_pheromone=10):
+def update_pheromones_numba_max(pheromones, paths, Q, evaporation, max_pheromone=10, min_pheromone=.1):
     pheromones *= (1 - evaporation)
 
     for path, length, steps in paths:
@@ -159,7 +159,23 @@ def update_pheromones_numba_max(pheromones, paths, Q, evaporation, max_pheromone
         for i in range(steps):
             pheromones[path[i, 0], path[i, 1]] += deposit
 
-    pheromones = np.clip(pheromones, 0, max_pheromone)
+    pheromones = np.clip(pheromones, min_pheromone, max_pheromone)
+
+    return
+
+@njit
+def update_pheromones_numba_Qs(pheromones, paths, Qs, evaporation, max_pheromone=10, min_pheromone=.1):
+    pheromones *= (1 - evaporation)
+
+    q = 0
+    for path, length, steps in paths:
+        deposit = Qs[q] / length
+        for i in range(steps):
+            pheromones[path[i, 0], path[i, 1]] += deposit
+
+        q += 1
+
+    pheromones = np.clip(pheromones, min_pheromone, max_pheromone)
 
     return
 

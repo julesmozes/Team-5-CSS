@@ -53,7 +53,8 @@ class Map:
 
             base = float(data["travel_time"]) if add_travel_time and "travel_time" in data else float(data["length"])
             data["cost"] = base
-            data["pheromone"] = 1.0
+            data["base_cost"] = base
+            data["pheromone"] = 1e-4
             data["heuristic"] = 1.0
 
         
@@ -235,7 +236,7 @@ class Map:
         self.nodes      = np.array([u for u in G.nodes])
         self.pos        = np.zeros((self.N, 2), dtype=np.float64)
         self.neighbors  = np.ones((self.N, self.max_deg), dtype=np.int32)
-        self.pheromone  = np.ones((self.N, self.max_deg), dtype=np.float64)
+        self.pheromone  = np.ones((self.N, self.max_deg), dtype=np.float64) * .1
         self.heuristic  = np.zeros((self.N, self.max_deg), dtype=np.float64)
         self.base_cost  = np.zeros((self.N, self.max_deg), dtype=np.float64)
         self.cost       = np.zeros((self.N, self.max_deg), dtype=np.float64)
@@ -266,7 +267,9 @@ class Map:
         self, 
         modulationDepth=.5,
         minSpatialWavelength=200,
-        minTemporalWavelength=5
+        minTemporalWavelength=5,
+        maxTime=100,
+        steps=100
     ):
         # use 10 components for spatial/temporal
         self.waveVectors = np.random.uniform(-1, 1, (10, 2)) / minSpatialWavelength
@@ -274,8 +277,6 @@ class Map:
         self.amplitude = np.random.uniform(-1, 1, 10)
 
         # normalise
-        maxTime = 1000
-        steps = 1000
         time = np.linspace(0, maxTime, steps)
         maxModulation = np.empty(steps)
 
@@ -284,12 +285,12 @@ class Map:
 
             edgeModulation = np.zeros((self.N, self.max_deg))
             for u in range(self.N):
-                for k in range(self.degree[i]):
-                    v = self.neighbors[i, k]
+                for k in range(self.degree[u]):
+                    v = self.neighbors[u, k]
 
-                    edgeModulation[i, k] = .5 * (self.modulation[u] + self.modulation[v])
+                    edgeModulation[u, k] = .5 * (self.modulation[u] + self.modulation[v])
 
-            maxModulation[i] = np.max(edgeModulation)
+            maxModulation[i] = np.max(np.abs(edgeModulation))
 
         self.amplitude *= modulationDepth / np.max(maxModulation)
 
@@ -302,16 +303,57 @@ class Map:
             for k in range(self.degree[i]):
                 j = self.neighbors[i, k]
 
-                self.cost[i, k] = self.base_cost[i, k] * (1 + .5 * (self.modulation[i] + self.modulation[j]))
+                self.cost[i, k] = self.base_cost[i, k] * np.exp(.5 * (self.modulation[i] + self.modulation[j]))
+
+        for i, u in enumerate(self.G.nodes):
+            for k, v in enumerate(self.G.neighbors(u)):
+                j = np.argwhere(self.nodes == v)
+                edge = self.G[u][v]
+                base_cost = edge["base_cost"]
+                edge["cost"] = base_cost * np.exp(.5 * (self.modulation[i] + self.modulation[j]))
 
         return
+    
+    def getShortestPathLength(self):
+        return float(
+            nx.shortest_path_length(
+                self.G,
+                self.src_node,
+                self.dest_node,
+                weight="cost"
+            )
+        )
+    
+    def seedShortestPath(self, pheromone=1):
+        self.optimalPath = nx.dijkstra_path(self.G, self.src_node, self.dest_node, weight="cost")
+
+        for i in range(len(self.optimalPath) - 1):
+            current = np.argwhere(self.nodes == self.optimalPath[i])[0][0]
+            options = self.nodes[self.neighbors[current, :self.degree[current]]]
+            k = np.argwhere(options == self.optimalPath[i + 1])
+
+            self.pheromone[current, k] = pheromone
+
+        return
+    
+    def evaluateBaselinePath(self):
+        length = 0
+
+        for i in range(len(self.optimalPath) - 1):
+            current = np.argwhere(self.nodes == self.optimalPath[i])[0][0]
+            options = self.nodes[self.neighbors[current, :self.degree[current]]]
+            k = np.argwhere(options == self.optimalPath[i + 1])
+
+            length += self.cost[current, k]
+
+        return length
 
     def resetPheromones(self):
         for u, v in self.G.edges:
-            self.G[u][v]["pheromone"] = 1.0
+            self.G[u][v]["pheromone"] = .1
 
         for i in range(self.N):
-            self.pheromone[i] = np.ones(self.max_deg)
+            self.pheromone[i] = np.ones(self.max_deg) * .1
 
         return
     
