@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from matplotlib.collections import LineCollection
 from matplotlib import colors
+from matplotlib.animation import PillowWriter
 
-np.random.seed(44)
+np.random.seed(49)
 
 map = osmap.Map()
 
@@ -31,7 +32,7 @@ def transparent_cmap(color, name="transparent_cmap", N=256):
 
     return colors.LinearSegmentedColormap.from_list(name, colormap)
 
-redMap = transparent_cmap((1, 0, 0))
+redMap = transparent_cmap((0, 1, 0))
 
 N_ANTS = 500
 ITER = 500
@@ -39,7 +40,7 @@ alpha = 1
 beta = 1.5
 Q = 1
 evaporation = .2
-max_pheromone = .2
+max_pheromone = 2
 
 segments = []
 edge_index = []  # (i, k) pairs
@@ -79,16 +80,36 @@ lc.set_array(color)
 fig, ax = plt.subplots(figsize=(8, 8))
 ax.add_collection(lc)
 ax.add_collection(lcBase)
-ax.autoscale()
 ax.set_axis_off()
 
+fig.patch.set_facecolor("black")
+ax.set_facecolor("black")
+
+sx, sy = map.G.nodes[map.src_node]["x"], map.G.nodes[map.src_node]["y"]
+dx, dy = map.G.nodes[map.dest_node]["x"], map.G.nodes[map.dest_node]["y"]
+
+xmin = min(sx, dx)
+xmax = max(sx, dx)
+ymin = min(sy, dy)
+ymax = max(sy, dy)
+
+xc = .5 * (xmin + xmax)
+yc = .5 * (ymin + ymax)
+
+radius = 0.8 * max(abs(xmax - xmin), abs(ymax - ymin))
+
+ax.set_xlim(xc - radius, xc + radius)
+ax.set_ylim(yc - radius, yc + radius)
+
 cbar = fig.colorbar(lc, ax=ax, fraction=0.03, pad=0.01)
-cbar.set_label("Pheromone")
+cbar.set_label("Pheromone", color="white")
+cbar.ax.yaxis.set_tick_params(color="white")
+plt.setp(cbar.ax.get_yticklabels(), color="white")
 
 ax.scatter(
     map.G.nodes[map.src_node]["x"],
     map.G.nodes[map.src_node]["y"],
-    c="green",
+    c="white",
     s=80,
     zorder=5,
     label="source",
@@ -97,7 +118,7 @@ ax.scatter(
 ax.scatter(
     map.G.nodes[map.dest_node]["x"],
     map.G.nodes[map.dest_node]["y"],
-    c="red",
+    c="white",
     s=80,
     zorder=5,
     label="target",
@@ -116,7 +137,7 @@ def update(frame):
         color = np.array([map.pheromone[i, k] for i, k in edge_index])
         lc.set_array(color)
 
-    ax.set_title(f"iteration = {frame:.1f}")
+    ax.set_title(f"iteration = {frame:.1f}", color="white")
 
 ani = animation.FuncAnimation(
     fig,
@@ -126,5 +147,15 @@ ani = animation.FuncAnimation(
     blit=False,
     repeat=False
 )
+
+gif_path = "ants_pheromones.gif"
+
+writer = PillowWriter(
+    fps=20,          # frames per second
+    metadata={"artist": "Ant Colony Optimization"},
+    bitrate=1800
+)
+
+ani.save(gif_path, writer=writer)
 
 plt.show()

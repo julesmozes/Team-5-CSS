@@ -7,6 +7,7 @@ import copy
 import matplotlib.animation as animation
 from matplotlib.collections import LineCollection
 from matplotlib import colors
+from matplotlib.animation import PillowWriter
 
 class Map:
     def __init__(self):
@@ -142,7 +143,7 @@ class Map:
     t_max=200,
     dt=1.0,
     interval=50,
-    cmap="rainbow"
+    filename=None
     ):
         """
         Animate dynamic edge costs.
@@ -158,6 +159,21 @@ class Map:
         cmap : str
             Matplotlib colormap
         """
+
+        def transparent_cmap(color, name="transparent_cmap", N=256):
+            alphas = np.linspace(0, 1, N)
+
+            r, g, b = color
+
+            colormap = np.zeros((N, 4))
+            colormap[:, 0] = r
+            colormap[:, 1] = g
+            colormap[:, 2] = b
+            colormap[:, 3] = alphas
+
+            return colors.LinearSegmentedColormap.from_list(name, colormap)
+
+        redMap = transparent_cmap((1, 0, 0))
 
         # --- build edge geometry once ---
         segments = []
@@ -180,24 +196,38 @@ class Map:
         cost = np.array([self.cost[i, k] for i, k in edge_index])
         ratio = cost / base
 
-        norm = colors.Normalize(vmin=0.5, vmax=1.5)
+        norm = colors.Normalize(vmin=0, vmax=10)
 
         lc = LineCollection(
             segments,
-            cmap=cmap,
+            cmap=redMap,
             norm=norm,
             linewidths=1.0
         )
         lc.set_array(ratio)
 
+        lcBase = LineCollection(
+            segments,
+            color="lightgrey",
+            linewidths=1.0,
+            zorder=1,
+            alpha=0.5
+        )
+
         # --- plot ---
         fig, ax = plt.subplots(figsize=(8, 8))
         ax.add_collection(lc)
+        ax.add_collection(lcBase)
         ax.autoscale()
         ax.set_axis_off()
 
+        fig.patch.set_facecolor("black")
+        ax.set_facecolor("black")
+
         cbar = fig.colorbar(lc, ax=ax, fraction=0.03, pad=0.01)
-        cbar.set_label("cost / base_cost")
+        cbar.set_label("cost / base cost", color="white")
+        cbar.ax.yaxis.set_tick_params(color="white")
+        plt.setp(cbar.ax.get_yticklabels(), color="white")
 
         def update(frame):
             t = frame * dt
@@ -222,8 +252,17 @@ class Map:
             frames=frames,
             interval=interval,
             blit=False,
-            repeat=True
+            repeat=False
         )
+
+        if filename:
+            writer = PillowWriter(
+                fps=20,          # frames per second
+                metadata={"artist": "Ant Colony Optimization"},
+                bitrate=1800
+            )
+
+            ani.save(filename, writer=writer)
 
         plt.show()
         return
