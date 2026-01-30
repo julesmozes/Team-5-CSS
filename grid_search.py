@@ -2,17 +2,31 @@ import minimal.ants as ants
 import minimal.osmap as osmap
 import numpy as np
 import networkx as nx
+from scipy.stats import mannwhitneyu
+from concurrent.futures import ProcessPoolExecutor
+from itertools import product
+import os
 
-# map = osmap.Map()
+_GS = None
 
-# map.build("Oost, Amsterdam, Netherlands")
-# min_dist = map.makeRandomTest(300, 500, plot=False)
+def _init_worker(gs_kwargs, backup_path, verbose=False):
+    global _GS
+    _GS = Grid_search(**gs_kwargs)
+    _GS.verbose = verbose
+    _GS.build_map(filename=backup_path)
 
-# print("minimum distance Dijkstra: ", min_dist)
+def _eval_pairs(pairs):
+    # evaluates a chunk of pairs in one worker
+    out = []
+    for a, b in pairs:
+        if getattr(_GS, "verbose", False):
+            print(f"testing a={a:.3f}, b={b:.3f}", flush=True)
+        out.append(((a, b), _GS.eval_one(a, b)))
+    return out
 
 
 class Grid_search():
-    def __init__(self, n_ants, iterations, Q, evaporation, init_params, repeats=5, base_seed=67):
+    def __init__(self, n_ants, iterations, Q, evaporation, init_params, repeats=3, base_seed=67):
         self.n_ants = n_ants
         self.iterations = iterations
         self.Q = Q
@@ -23,32 +37,64 @@ class Grid_search():
         self.base_seed = base_seed
         self.evolution_data = None
         
-    def run_manual_grid_search(self):
-        results = {}
         
-        for a in self.alphas:
-            for b in self.betas:
-                results[(a, b)] = self.eval_one(a, b)
-                
-        return results 
+        
+    def run_manual_grid_search(self, backup_path, max_workers=6, chunk_size=25, verbose=False):
+        pairs = list(product(self.alphas, self.betas))
+
+        # chunk the work to reduce overhead
+        chunks = [pairs[i:i+chunk_size] for i in range(0, len(pairs), chunk_size)]
+
+        gs_kwargs = dict(
+            n_ants=self.n_ants,
+            iterations=self.iterations,
+            Q=self.Q,
+            evaporation=self.evaporation,
+            init_params=([1.0], [1.0]),  # dummy
+            repeats=self.repeats,
+            base_seed=self.base_seed,
+        )
+
+        results = {}
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            initializer=_init_worker,
+            initargs=(gs_kwargs, backup_path, verbose),
+        ) as ex:
+            for chunk_out in ex.map(_eval_pairs, chunks):
+                for (a, b), metrics in chunk_out:
+                    results[(a, b)] = metrics
+
+        return results
+    
+    
     
     def eval_one(self, a, b):
-        target_dist = self.min_dist + 50
-
-        best_lengths = []
-        mean_norms = []
         solved_iterations = []
+        best_lengths = []
 
         for r in range(self.repeats):
-            solved = False
             np.random.seed(self.base_seed + r)
             self.map.resetPheromones()
 
-            iters_solved = self.iterations
-            best_length = float("inf")
-            all_lengths = []
+            iters_solved, best_length = self.eval_one_single(a, b)
+            solved_iterations.append(iters_solved)
+            best_lengths.append(best_length)
 
-            for it in range(self.iterations):
+        return {
+            "fitness": float(np.mean(solved_iterations)),
+            "best_length": float(np.mean(best_lengths)),
+        }
+        
+        
+        
+    def eval_one_single(self, a, b):
+        target_dist = self.min_dist + 50.0
+        solved = False
+        iters_solved = self.iterations
+        best_length = float("inf")
+        
+        for it in range(self.iterations):
                 solutions = []
 
                 for i in range(self.n_ants):
@@ -57,12 +103,11 @@ class Grid_search():
                     )
                     if steps:
                         solutions.append((path, length, steps))
-                        all_lengths.append(length)
 
                 if not solutions:
                     continue
 
-                ants.update_pheromones_numba_max(
+                ants.update_pheromones_numba(
                     self.map.pheromone, solutions, self.Q, self.evaporation
                 )
 
@@ -73,19 +118,12 @@ class Grid_search():
                 if not solved and current_best <= target_dist:
                     iters_solved = it
                     solved = True
-
-            solved_iterations.append(iters_solved)
-            best_lengths.append(best_length)
-
-            mean_len = np.mean(all_lengths) if all_lengths else float("inf")
-            mean_norms.append(mean_len / self.min_dist)
-
-        return {
-                "fitness": float(np.mean(solved_iterations)),
-                "best_length": float(np.mean(best_lengths)),
-                "mean_norm": float(np.mean(mean_norms)),
-                }     
-        
+                    break
+                
+        return iters_solved, best_length
+    
+    
+    
     def find_srcdest(self, filename):
         self.evo_data = np.load(filename, allow_pickle=True)
         best_paths = self.evo_data["best_paths"]
@@ -102,9 +140,11 @@ class Grid_search():
         
         return start_node_id, end_node_id
     
+    
+    
     def build_map(self, filename=None, random_=False):
         self.map = osmap.Map()
-        self.map.build("Amsterdam, Netherlands")
+        self.map.build("Amsterdam, Netherlands", add_travel_time=False)
         
         if not random_:
             self.map.src_node, self.map.dest_node = self.find_srcdest(filename)
@@ -122,8 +162,12 @@ class Grid_search():
         else:
             self.min_dist = self.map.makeRandomTest(300, 500, plot=False)
             
+            
+            
     def pick_best(self, results):
-        return min(results, key=lambda p: (results[p]["fitness"], results[p]["mean_norm"]))
+        return min(results, key=lambda p: (results[p]["fitness"], results[p]["best_length"]))
+    
+    
     
     def make_fine_grid(self, a_star, b_star, step_a=0.25, step_b=0.25):
         alphas = [round(a_star - step_a, 3), round(a_star, 3), round(a_star + step_a, 3)]
@@ -133,6 +177,8 @@ class Grid_search():
         betas = [b for b in betas if b > 0]
         return alphas, betas
     
+    
+    
     def run_coarse_to_fine(self, fine_step_a=0.25, fine_step_b=0.25, mode="manual"):
         if mode == "manual":
             results_coarse = self.run_manual_grid_search()
@@ -140,8 +186,19 @@ class Grid_search():
             best_metrics = results_coarse[(best_a, best_b)]
 
         elif mode == "random":
-            (best_a, best_b), best_metrics = self.run_random_search()
-            results_coarse = {(best_a, best_b): best_metrics}
+            (best_a, best_b), best_metrics, top = self.run_random_search(n_samples=500, top_k=10)
+            old_iters, old_repeats = self.iterations, self.repeats
+            self.iterations = 600 
+            self.repeats = 5         
+
+            results_coarse = {}
+            for _, _, a, b, _m in top:
+                results_coarse[(a, b)] = self.eval_one(a, b)
+
+            best_a, best_b = self.pick_best(results_coarse)
+            best_metrics = results_coarse[(best_a, best_b)]
+
+            self.iterations, self.repeats = old_iters, old_repeats
 
         else:
             raise ValueError("mode must be 'manual' or 'random' :((")
@@ -154,8 +211,8 @@ class Grid_search():
         self.alphas, self.betas = fine_alphas, fine_betas
 
         old_iters, old_repeats = self.iterations, self.repeats
-        self.iterations = max(self.iterations, 400)
-        self.repeats = max(self.repeats, 3)
+        self.iterations = 1000  
+        self.repeats = 5        
 
         results_fine = self.run_manual_grid_search()
         best_a2, best_b2 = self.pick_best(results_fine)
@@ -167,30 +224,47 @@ class Grid_search():
 
         return results_coarse, results_fine, (best_a2, best_b2)
     
-    def run_random_search(self, n_samples=30, alpha_range=(0.5, 5.0), beta_range=(0.75, 3.0)):
+    
+    
+    def run_random_search(self, n_samples=30, alpha_range=(0.5, 5.0), beta_range=(0.75, 6.0),
+                      fast_iters=300, fast_repeats=3, top_k=5):
+
+        old_iters, old_repeats = self.iterations, self.repeats
+        self.iterations = fast_iters
+        self.repeats = fast_repeats
+
         rng = np.random.default_rng(self.base_seed)
 
-        best_params = None
-        best_metrics = None
+        top = []  # list of tuples: (fitness, best_length, a, b, metrics)
 
         for _ in range(n_samples):
             a = float(rng.uniform(*alpha_range))
             b = float(rng.uniform(*beta_range))
-            
-            print(f"Now trying alpha={a:.3f}, beta={b:.3f}")
 
             metrics = self.eval_one(a, b)
+            key = (metrics["fitness"], metrics["best_length"])
 
-            if best_metrics is None:
-                best_params, best_metrics = (a, b), metrics
-            else:
-                if (metrics["fitness"], metrics["mean_norm"]) < (best_metrics["fitness"], best_metrics["mean_norm"]):
-                    best_params, best_metrics = (a, b), metrics
+            top.append((key[0], key[1], a, b, metrics))
+            
+            top.sort(key=lambda t: (t[0], t[1]))
+            top = top[:top_k]
 
-            print(f"BOEMBASTIC METRICS:\n fitness={metrics['fitness']:.2f}, mean_norm={metrics['mean_norm']:.4f}")
+            print(f"try a={a:.3f}, b={b:.3f} -> fitness={metrics['fitness']:.2f}")
+
+        self.iterations, self.repeats = old_iters, old_repeats
+
+        best = top[0]
+        best_params = (best[2], best[3])
+        best_metrics = best[4]
+
+        print("\nTOP candidates:")
+        for rank, t in enumerate(top, 1):
+            print(f"{rank}) a={t[2]:.3f}, b={t[3]:.3f} -> fitness={t[0]:.2f}, best_len={t[1]:.2f}")
 
         print("\nBEST random:", best_params, best_metrics)
-        return best_params, best_metrics
+        return best_params, best_metrics, top
+        
+        
     
     def run_colony_dna(self, num_evals, num_iterations, num_ants):
         colony = self.evo_data["best_individual"][-2] # laatst gevulde index blijkbaar -1 is leeg, maar hoort geen probleem te zijn lijkt me
@@ -220,8 +294,8 @@ class Grid_search():
                 ants.update_pheromones_numba(
                     self.map.pheromone,
                     solutions,
-                    Q=1,
-                    evaporation=0.2,
+                    Q=self.Q,
+                    evaporation=self.evaporation,
                 )
 
                 best_length = min(length for _, length, _ in solutions)
@@ -233,190 +307,117 @@ class Grid_search():
 
         self.its_to_threshold = its_to_threshold
         return its_to_threshold
-        
-        
-if __name__ == "__main__":
-    alphas = [0.1, 1, 2, 3, 4, 5]
-    betas  = [1, 2, 3, 4, 5, 6]
-    init_params = (alphas, betas)
     
-    n_ants = 200
-    iterations = 1000
-    alpha = 2
-    beta = 1.5
+    
+    
+    def sample_grid(self, alpha, beta, num_evals=100):
+        np.random.seed()
+        samples = []
+        for _ in range(num_evals):
+            self.map.resetPheromones()
+            iters_solved, _best_len = self.eval_one_single(alpha, beta)
+            samples.append(iters_solved)
+        return samples
+        
+        
+        
+    def cliffs_delta(self, x, y):
+        n_x = len(x)
+        n_y = len(y)
+        greater = sum(xi > yi for xi in x for yi in y)
+        less = sum(xi < yi for xi in x for yi in y)
+        return (greater - less) / (n_x * n_y)
+
+
+    def compare_evo_vs_grid(self, best_alpha, best_beta, num_evals=30, alternative="greater"):
+        """
+        tests H1: grid needs more iterations than evo (evo better).
+        """
+
+        evo_samples = self.run_colony_dna(
+            num_evals=num_evals,
+            num_iterations=self.iterations,
+            num_ants=self.n_ants,
+        )
+        grid_samples = self.sample_grid(best_alpha, best_beta, num_evals=num_evals)
+
+        u_stat, p_val = mannwhitneyu(grid_samples, evo_samples, alternative=alternative)
+
+        
+        delta = self.cliffs_delta(grid_samples, evo_samples)
+
+        report = {
+            "best_alpha": float(best_alpha),
+            "best_beta": float(best_beta),
+            "n": int(num_evals),
+            "alternative": alternative,
+            "U": float(u_stat),
+            "p": float(p_val),
+            "cliffs_delta": float(delta),
+            "grid_mean": float(np.mean(grid_samples)),
+            "evo_mean": float(np.mean(evo_samples)),
+            "grid_median": float(np.median(grid_samples)),
+            "evo_median": float(np.median(evo_samples)),
+        }
+        return report, grid_samples, evo_samples
+
+
+
+
+if __name__ == "__main__":
+    alphas = np.arange(0.9, 2.01, 0.01)
+    betas  = np.arange(1, 6.01, 0.05)
+    init_params = (alphas, betas)
+
+    n_ants = 100
+    iterations = 300
     Q = 1
     evaporation = 0.2
-    
+
+    backup = "new_version_colony_evolution/evolution_backup.npz"
+
     grid_search = Grid_search(n_ants, iterations, Q, evaporation, init_params)
-    grid_search.build_map(filename="new_version_colony_evolution/evolution_backup.npz")
-    # grid_search.run_random_search(n_samples=1)
-    grid_search.run_colony_dna(num_evals=20, num_iterations=1000, num_ants=100)
+    grid_search.build_map(filename=backup)
+    compare_report, grid_samples, evo_samples = grid_search.compare_evo_vs_grid(1.697, 2.773, num_evals=100)
+   
+
+    timestamp = np.datetime64("now").astype(str).replace(":", "-")
+    out_path = f"manual_grid_{timestamp}.npz"
+    compare_out_path = f"compare_evo_vs_grid_{timestamp}.npz"
+
+    # results = grid_search.run_manual_grid_search(backup_path=backup)
+    # best_a, best_b = grid_search.pick_best(results)
+    # best_metrics = results[(best_a, best_b)]
+    # print("\nBEST manual:", best_a, best_b, best_metrics)
+    # ranodom compare
+    # np.savez(
+    #     out_path,
+    #     results=np.array(list(results.items()), dtype=object),
+    #     best_alpha=float(best_a),
+    #     best_beta=float(best_b),
+    #     best_metrics=np.array(best_metrics, dtype=object),
+    #     alphas=alphas,
+    #     betas=betas,
+    #     src_node=int(grid_search.map.src_node),
+    #     dest_node=int(grid_search.map.dest_node),
+    #     min_dist=float(grid_search.min_dist),
+    #     backup_path=backup,
+    #     n_ants=int(n_ants),
+    #     iterations=int(iterations),
+    #     Q=float(Q),
+    #     evaporation=float(evaporation),
+    # )
+
+    # manual compare save
+    # np.savez(compare_out_path,
+    #     report=np.array(compare_report, dtype=object),
+    #     best_alpha=float(compare_report["best_alpha"]),
+    #     best_beta=float(compare_report["best_beta"]),
+    #     grid_samples=np.array(grid_samples, dtype=int),
+    #     evo_samples=np.array(evo_samples, dtype=int),
+    #     src_node=int(grid_search.map.src_node),
+    # )
+    # print(f"Saved results to: {out_path}")
     
-
-
-
-        
-# def run_grid_search(self):
-#         results = {}
-        
-#         target_dist = self.min_dist + 50
-        
-#         for a in self.alphas:
-#             for b in self.betas:
-#                 best_lengths = []
-#                 mean_norms = []
-#                 solved_iterations = []
-                
-                
-#                 for r in range(self.repeats):
-#                     solved = False
-#                     np.random.seed(self.base_seed + r)
-#                     self.map.resetPheromones()
-                    
-#                     iters_solved = self.iterations
-#                     best_length = float("inf")
-#                     all_lengths = []
-                    
-                    
-#                     for it in range(self.iterations):
-#                         solutions = []
-                        
-#                         for i in range(self.n_ants):
-#                             path, length, steps = ants.build_path_numba(self.map.getNumbaData(), a, b, max_steps=1000)
-#                             if steps:
-#                                 solutions.append((path, length, steps))
-#                                 all_lengths.append(length)
-                                
-#                         if not solutions:
-#                             continue
-                        
-#                         ants.update_pheromones_numba_max(self.map.pheromone, solutions, self.Q, self.evaporation, max_pheromone=0.5)
-                        
-#                         current_best = min(length for _, length, _ in solutions)
-#                         if current_best < best_length:
-#                             best_length = current_best
-                        
-#                         if not solved and current_best <= target_dist:
-#                             iters_solved = it
-#                             solved = True
-                    
-#                     solved_iterations.append(iters_solved)  
-#                     best_lengths.append(best_length)
-                    
-#                     mean_len = np.mean(all_lengths) if all_lengths else float('inf')
-#                     mean_norms.append(mean_len / self.min_dist)
-                    
-#                 mean_fitness = float(np.mean(solved_iterations))
-
-#                 results[(a, b)] = {
-#                 "fitness": mean_fitness,
-#                 "best_length": float(np.mean(best_lengths)),
-#                 "mean_norm": float(np.mean(mean_norms)),
-#                 }
-                
-#         return results 
-
-
-
-
-# def run_grid_search(alphas, betas, N_ants, iterations, Q, evaporation, map, repeats=5, base_seed=67):
-#     results = {}
-#     for alpha in alphas:
-#         for beta in betas:
-#             best_lengths = []
-#             mean_norms = []
-
-#             for r in range(repeats):
-#                 np.random.seed(base_seed + r)
-#                 map.resetPheromones()
-
-#                 best_length = float('inf')
-#                 all_lengths = []
-
-#                 for it in range(iterations):
-#                     solutions = []
-
-#                     for i in range(N_ants):
-#                         path, length, steps = ants.build_path_numba(map.getNumbaData(), alpha, beta, max_steps=1000)
-#                         if steps:
-#                             solutions.append((path, length, steps))
-#                             all_lengths.append(length)
-
-#                     if not solutions:
-#                         continue
-
-#                     ants.update_pheromones_numba_max(map.pheromone, solutions, Q, evaporation, max_pheromone=0.5)
-
-#                     current_best = min(length for _, length, _ in solutions)
-#                     if current_best < best_length:
-#                         best_length = current_best
-
-#                 best_lengths.append(best_length)
-                
-#                 mean_len = np.mean(all_lengths) if all_lengths else float('inf')
-#                 mean_norms.append(mean_len / min_dist)
-
-#             results[(alpha, beta)] = {
-#                 "best_length": float(np.mean(best_lengths)),
-#                 "mean_norm": float(np.mean(mean_norms)),
-#             }
-#             print(
-#                 f"alpha: {alpha}, beta: {beta}, mean_norm: {results[(alpha, beta)]['mean_norm']:.4f}, "
-#                 f"best_length: {results[(alpha, beta)]['best_length']:.3f}"
-#             )
-#     return results
-
-# alphas = [3.0, 4.0, 5.0]
-# betas  = [5]
-# repeats = 2
-# iterations = 200
-# # grid_search_results = run_grid_search(alphas, betas, n_ants, iterations, Q, evaporation, map)
-# # print("Grid Search Results:")
-# # for params, metrics in grid_search_results.items():
-# #     print(
-# #         f"Parameters (alpha={params[0]}, beta={params[1]}): "
-# #         f"mean_norm={metrics['mean_norm']:.4f}, best_length={metrics['best_length']:.3f}"
-# #     )
-
-# # best_params = min(grid_search_results, key=lambda p: grid_search_results[p]["mean_norm"])
-# # print(
-# #     f"Best: alpha={best_params[0]}, beta={best_params[1]}, "
-# #     f"mean_norm={grid_search_results[best_params]['mean_norm']:.4f}"
-# #)
-
-
-# # print(data["best_paths"])
-# def find_srcdest(filename):
-#     data = np.load(filename, allow_pickle=True)
-#     best_paths = data["best_paths"]
-#     fitness_hist = data["fitness_history"]
-#     flat_fitness = fitness_hist[:, :, 0]
-
-#     last_gen_idx = -1
-#     scores_last_gen = flat_fitness[last_gen_idx]
-#     best_colony_idx = np.argmin(scores_last_gen)
-#     winning_path = best_paths[last_gen_idx][best_colony_idx]
-
-#     start_node_id = winning_path[0]
-#     end_node_id = winning_path[-1]
+    # grid_search.run_colony_dna(num_evals=20, num_iterations=1000, num_ants=100)
     
-#     return start_node_id, end_node_id
-
-# def run_coarse_to_fine(n_ants, iterations, Q, evaporation, src_dest_nodes ,repeats=5):
-    
-#     map = osmap.Map()
-    
-#     coarse_alphas = [0.1, 1, 2, 3, 4, 5]
-#     coarse_betas =  [1, 2, 3, 4, 5, 6]
-    
-#     map.src = src_dest_nodes[0]
-#     map.dest = src_dest_nodes[1]
-    
-#     map.build()
-    
-#     results_1 = run_grid_search(
-#         coarse_alphas, coarse_betas, 
-#         n_ants, iterations, Q, evaporation, map, 
-#         repeats=repeats
-#         )   
- 
