@@ -4,6 +4,7 @@ Is it possible to optimize the local rules of individual ants in ant colony opti
 ## overview
 Entry point -> run `rq1.py`
 make more plots and compare with random population -> run `analyze_data.py`
+gridsearch -> `grid_search.py`
 
 ## How it works
 As explained in the main `readme` this part tries to mimick real-world biological evolution in ant colonies. We argue that this is a big driver of why complex systems can become as good as they are, in real life.
