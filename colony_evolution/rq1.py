@@ -1,11 +1,3 @@
-"""
-RQ1, concept: Hoe evolueert de genenpool van de genetische ant colony met optimale waardes voor de normale ant colony?
-
-RQ1: How does the performance and genepool of genetic ant colonies compare to an ant colony with single optimized alpha and beta values?
- - spread of genes plot
- - performance plot, performance over time.
-
-"""
 from evolutionary_cycle import EvolveColonies
 import matplotlib.pyplot as plt
 import numpy as np

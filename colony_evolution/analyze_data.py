@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import osmap
-import ants
+import minimal.osmap
+import minimal.ants
 import evolutionary_cycle
 from scipy.stats import mannwhitneyu
 from concurrent.futures import ProcessPoolExecutor, as_completed
