@@ -28,3 +28,5 @@ To prove this we will compare the performance of the final ant colony population
 ## Limitations
 Due to the short time of the project we don't have much time to optimize the large number of parameters involved in the algorithms.
 Also we lack a lot of computing power. But even with these limitation we were able to demonstrate a significant improvement, so maybe we could demonstrate an even better improvement when these limitations can be handled.
+
+![Animation](./plots/dynamic.gif)
