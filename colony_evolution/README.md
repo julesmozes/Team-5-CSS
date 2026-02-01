@@ -1,2 +1,4 @@
 # this folder answers RQ1:
 Is it possible to optimize the local rules of individual ants in ant colony optimisation to reduce the number of iterations needed to find an  optimal solution on a static real world map by using an evolutionary algorithm? How does the best ant colony compare to an ant colony optimised using grid search? And how does the final ant population compare to an ant colony population that was initialised random?
+
+Entry point -> run rq1.py
