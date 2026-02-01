@@ -34,3 +34,5 @@ path as found by Dijkstra's algorithm, indicating how optimal the path is (and b
 
 Since we study adaptation rather than regular path finding, we initially seed the optimal path to elminiate warm-up time and to give the two colony types the same starting point. The seeding is done
 by having Dijkstra's algorithm find the optimal path given the traffic condtions at time=0 and laying down pheromones on this path.
+
+entry point -> run rq2.py
