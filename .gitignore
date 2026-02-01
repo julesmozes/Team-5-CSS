@@ -1,7 +1,9 @@
 /cache
 /__pycache__
-/classes/__pycache__
-/minimal/__pycache__
+/adaptation_evolution/__pycache__
+/adaptation_evolution/cache
+/animations/__pycache__
+/animations/cache
 /plots
 /new_version_colony_evolution/__pycache__
 .DS_Store
