@@ -135,7 +135,7 @@ def evaluate_population_parallel(
 if __name__ == "__main__":
     np.random.seed(42)
 
-    backup = load_evolution_backup("./new_version_colony_evolution/evolution_backup.npz")
+    backup = load_evolution_backup("./new_version_colony_evolution/evolution_backup_final.npz")
     map = osmap.Map()
     map.build("Amsterdam, Netherlands", add_travel_time=False)
     min_dist = map.set_src_dest_from_nodes(460441703, 46276928)
