@@ -6,9 +6,10 @@ We apply this approach to a real-world map using OpenStreetMap data. This topic 
 
 Next, we extend the project to a dynamic map environment. We demonstrate that an adaptive, evolutionary colony can outperform a colony with static parameters. As in nature, a system that can adapt and evolve is better suited to changing circumstances and environments. By allowing a colony to adjust over time, the colony is able to find shorter paths on the map, showing a clear benefit of this approach, applicable to a real-world problem.
 
-- see `/colony_evolution/` for rq1
+- see `/colony_evolution/README.md` for research question 1 
+- see `/adaptation_evolution/README.md` for research question 2 
 - see `/slides/` for presentation
-- see ....
+- see `/animations/` for code used to generate animations
 
 
 ## Research Questions
@@ -23,5 +24,5 @@ To prove this we will compare the performance of the final ant colony population
 1. b. The best Ant Colony from our evolutionary alogrithm will outperform an Ant Colony that shares one alpha and beta value, optimized using grid search.
 
 ## Limitations
-Due to the short time of the project we don't have much time to optimize the large number of parameters involved in the algorithms .
+Due to the short time of the project we don't have much time to optimize the large number of parameters involved in the algorithms.
 Also we lack a lot of computing power. But even with these limitation we were able to demonstrate a significant improvement, so maybe we could demonstrate an even better improvement when these limitations can be handled.
