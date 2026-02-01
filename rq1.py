@@ -30,12 +30,14 @@ def plot_param(param, name):
     plt.show()
 
 def plot_fitness(fitness_history):
-    mean_fitness = fitness_history.mean(axis=1)
-    std_fitness = fitness_history.std(axis=1)
+    # Extract quality values (index 0)
+    quality = fitness_history[:, :, 0]
+    mean_fitness = quality.mean(axis=1)
+    std_fitness = quality.std(axis=1)
     gens = np.arange(len(mean_fitness))
 
     plt.figure()
-    plt.plot(gens, mean_fitness, linewidth=2, label="Mean fitness")
+    plt.plot(gens, mean_fitness, linewidth=2, label="Mean fitness (quality)")
     plt.fill_between(
         gens,
         mean_fitness - std_fitness,
@@ -45,15 +47,73 @@ def plot_fitness(fitness_history):
     )
 
     plt.xlabel("Generation")
-    plt.ylabel("Fitness")
+    plt.ylabel("Fitness (Quality)")
     plt.title("Average population fitness with spread")
     plt.legend()
     plt.show()
 
 
+def plot_effort(fitness_history):
+    # Extract effort values (index 1)
+    effort = fitness_history[:, :, 1]
+    mean_effort = effort.mean(axis=1)
+    std_effort = effort.std(axis=1)
+    gens = np.arange(len(mean_effort))
+
+    plt.figure()
+    plt.plot(gens, mean_effort, linewidth=2, label="Mean effort (iterations)")
+    plt.fill_between(
+        gens,
+        mean_effort - std_effort,
+        mean_effort + std_effort,
+        alpha=0.3,
+        label="Std deviation"
+    )
+
+    plt.xlabel("Generation")
+    plt.ylabel("Effort (Iterations to convergence)")
+    plt.title("Average population effort with spread")
+    plt.legend()
+    plt.show()
+
+def plot_quality_times_effort(fitness_history):
+    # Extract effort values (index 1)
+    effort = fitness_history[:, :, 1]
+    quality = fitness_history[:, :, 0]
+    quality_effort = effort*quality
+    mean = quality_effort.mean(axis=1)
+    std = quality_effort.std(axis=1)
+    gens = np.arange(len(mean))
+
+    plt.figure()
+    plt.plot(gens, mean, linewidth=2, label="Mean effort (iterations)")
+    plt.fill_between(
+        gens,
+        mean - std,
+        mean + std,
+        alpha=0.3,
+        label="Std deviation"
+    )
+
+    plt.xlabel("Generation")
+    plt.ylabel("Effort*Quality")
+    plt.title("Average population effort with spread")
+    plt.legend()
+    plt.show()
+
+
 def main():
-    colony_population_evolution = EvolveColonies(number_colonies=10, ants_per_colony=100, generations=10, iterations=100, mutation_rate=0.1)
-    history, fitness_history = colony_population_evolution.run()
+    colony_population_evolution = EvolveColonies(number_colonies=20,
+                                                ants_per_colony=150,
+                                                generations=10, 
+                                                iterations=400, 
+                                                mutation_rate=0.2, 
+                                                place="Amsterdam, Netherlands", 
+                                                add_travel_time=False,
+                                                min_distance=6000,
+                                                max_distance=7000,
+                                                single_path=True)
+    history, fitness_history = colony_population_evolution.run(plot_dir="plots", plot_each_generation=True, show_plots=False)
 
     # Collapse ants + colonies
     pheromone = history[..., 0]  # shape: (gen, col, ant)
@@ -61,6 +121,8 @@ def main():
     plot_param(pheromone, "Pheromone importance")
     plot_param(heuristic, "Heuristic importance")
     plot_fitness(fitness_history)
+    plot_effort(fitness_history)
+    plot_quality_times_effort(fitness_history)
 
 
 if __name__ == "__main__":

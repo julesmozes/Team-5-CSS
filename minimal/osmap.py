@@ -35,6 +35,67 @@ class Map:
                 G.add_edge(u, v, **data)
 
         return G
+    
+    def pick_node_pair_interactive(self, plot=True):
+        """
+        Manually pick source and destination by clicking on the map.
+        Returns shortest-path distance (cost).
+        """
+
+        fig, ax = ox.plot_graph(
+            self.Gm,
+            node_size=0,
+            edge_linewidth=0.6,
+            bgcolor="white",
+            show=False,
+            close=False,
+        )
+
+        ax.set_title("Click SOURCE, then DESTINATION")
+
+        # collect two clicks
+        try:
+            pts = plt.ginput(2, timeout=-1)
+        finally:
+            plt.close(fig)
+
+
+        if len(pts) != 2:
+            raise RuntimeError("Expected exactly two clicks")
+
+        (x1, y1), (x2, y2) = pts
+
+        # snap clicks to nearest graph nodes
+        src_node = ox.distance.nearest_nodes(self.Gm, x1, y1)
+        print("start_node:", src_node)
+        dest_node = ox.distance.nearest_nodes(self.Gm, x2, y2)
+        print("end_node:", dest_node)
+
+        # convert to internal indices
+        self.src_node = src_node
+        self.dest_node = dest_node
+        self.src = int(np.where(self.nodes == src_node)[0][0])
+        self.dest = int(np.where(self.nodes == dest_node)[0][0])
+
+        # compute shortest-path distance
+        try:
+            d = nx.shortest_path_length(
+                self.G,
+                self.src_node,
+                self.dest_node,
+                weight="cost",
+            )
+        except nx.NetworkXNoPath:
+            raise RuntimeError("No path exists between selected nodes")
+
+        # update heuristic + pheromones
+        self.build_heuristic()
+        self.resetPheromones()
+
+        if plot:
+            self.plot()
+
+        return d
 
     def build(self, place: str, network_type: str = "drive", add_travel_time: bool = True) -> nx.DiGraph:
         self.Gm = ox.graph_from_place(place, network_type=network_type, simplify=True)

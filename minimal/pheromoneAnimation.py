@@ -12,8 +12,8 @@ np.random.seed(49)
 
 map = osmap.Map()
 
-map.build("Oost, Amsterdam, Netherlands")
-min_dist = map.makeRandomTest(500, 800, plot=False)
+map.build("Amsterdam, Netherlands")
+min_dist = map.pick_node_pair_interactive(plot=True)
 
 # map.seedShortestPath()
 
@@ -35,7 +35,7 @@ def transparent_cmap(color, name="transparent_cmap", N=256):
 redMap = transparent_cmap((0, 1, 0))
 
 N_ANTS = 500
-ITER = 500
+ITER = 250
 alpha = 1
 beta = 1.5
 Q = 1
