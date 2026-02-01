@@ -23,6 +23,8 @@ To prove this we will compare the performance of the final ant colony population
 
 1. b. The best Ant Colony from our evolutionary alogrithm will outperform an Ant Colony that shares one alpha and beta value, optimized using grid search.
 
+2. We expect the increased exploratory nature of the two-genome colony will provide an improvement in terms of adaptation compared to the regular single-genome colony.
+
 ## Limitations
 Due to the short time of the project we don't have much time to optimize the large number of parameters involved in the algorithms.
 Also we lack a lot of computing power. But even with these limitation we were able to demonstrate a significant improvement, so maybe we could demonstrate an even better improvement when these limitations can be handled.
