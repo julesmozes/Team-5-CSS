@@ -1,0 +1,16 @@
+The code in this repository requires the following modules:
+
+## standard
+numpy
+random
+matplotlib
+
+## networks
+networkx
+osmnx
+
+## performance (parallelisation and JIT compiling)
+concurrent
+numba
+
+Additionally, the code requires an internet connection, as osmnx downloads maps from OpenStreetView (unless already cached).
