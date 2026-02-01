@@ -6,8 +6,8 @@ We apply this approach to a real-world map using OpenStreetMap data. This topic 
 
 Next, we extend the project to a dynamic map environment. We demonstrate that an adaptive, evolutionary colony can outperform a colony with static parameters. As in nature, a system that can adapt and evolve is better suited to changing circumstances and environments. By allowing a colony to adjust over time, the colony is able to find shorter paths on the map, showing a clear benefit of this approach, applicable to a real-world problem.
 
-- see `/colony_evolution/rq1.py` for research question 1 
-- see `/adaptation_evolution/rq2.py` for research question 2 
+- see `/colony_evolution/README.md` for research question 1 
+- see `/adaptation_evolution/README.md` for research question 2 
 - see `/slides/` for presentation
 - see `/animations/` for code used to generate animations
 
